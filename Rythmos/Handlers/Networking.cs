@@ -55,7 +55,7 @@ namespace Rythmos.Handlers
 
         private static string IP = null;
 
-        public static string Version = "0.2.9.9";
+        public static string Version = "0.3.0.2";
 
         public static Task Send(byte[] Data, byte Type)
         {
@@ -158,6 +158,7 @@ namespace Rythmos.Handlers
                                                         var Character = string.Join(" ", Split_Part.Take(3));
                                                         Characters.Server_Time_Mapping[Character] = T;
                                                     }
+                                                Clean();
                                                 break;
                                             }
                                         case 4:
@@ -267,6 +268,7 @@ namespace Rythmos.Handlers
                                                             {
                                                                 try
                                                                 {
+                                                                    Log.Information($"Unzipping {Rythmos_Path + "\\Mods\\" + Character_Name + "\\" + File_Name.Split("\\")[^1].Split(".zip")[0]}...");
                                                                     ZipFile.ExtractToDirectory(File_Name, Rythmos_Path + "\\Mods\\" + Character_Name + "\\" + File_Name.Split("\\")[^1].Split(".zip")[0], true);
                                                                 }
                                                                 catch (Exception Error)
@@ -381,7 +383,7 @@ namespace Rythmos.Handlers
 
         public async static Task Connect()
         {
-            if (!Client.Connected && !Connecting && Characters.Client.LocalPlayer is not null)
+            if (!Connecting && Characters.Objects.LocalPlayer is not null)
             {
                 Connecting = true;
                 //Log.Information("Connecting!");

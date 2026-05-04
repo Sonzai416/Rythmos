@@ -73,14 +73,18 @@ namespace Rythmos.Handlers
             public Dictionary<string, Mod_Entry> Mods { get; set; } = new();
 
             public List<string> Order { get; set; } = new();
+            [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
+            [DefaultValue(true)]
+            public bool External { get; set; } = true;
 
-            public Mod_Configuration(string Bones, string Glamour, string Meta, Dictionary<string, Mod_Entry> Mods, List<string>? Order)
+            public Mod_Configuration(string Bones, string Glamour, string Meta, Dictionary<string, Mod_Entry> Mods, List<string>? Order, bool External)
             {
                 this.Bones = Bones;
                 this.Glamour = Glamour;
                 this.Meta = Meta;
                 this.Mods = Mods ?? new Dictionary<string, Mod_Entry>();
                 this.Order = Order ?? this.Mods.Keys.ToList();
+                this.External = External;
             }
         }
 
@@ -157,6 +161,8 @@ namespace Rythmos.Handlers
         private static Dictionary<string, DateTime> Wait = new();
 
         private static Dictionary<string, DateTime> Collection_Wait = new();
+
+        private static Dictionary<string, bool> Individually_Set = new();
 
         private static bool Available = false;
 
@@ -285,12 +291,12 @@ namespace Rythmos.Handlers
                 if (Newest_Version != null ? (Configuration_Exists ? (File.GetLastWriteTimeUtc(Rythmos_Path + $"\\Mods\\{Name}\\Configuration.json") < File.GetLastWriteTimeUtc(Newest_Version)) : true) : false) Unpack(Name);
                 if (Configuration_Exists)
                 {
+                    if (!Load(Name)) return false;
                     File_Time_Mapping[Name] = new DateTimeOffset(File.GetLastWriteTimeUtc(Rythmos_Path + $"\\Mods\\{Name}\\Configuration.json")).ToUnixTimeMilliseconds();
                     Log.Information($"Creating the collection of {Name}!");
                     if (Collection_Mapping.ContainsKey(Name)) Collection_Remover.Invoke(Collection_Mapping[Name]);
                     Collection_Creator.Invoke(Name, Name, out var Collection_ID);
                     Collection_Mapping.Add(Name, Collection_ID);
-                    Load(Name);
                     Prepare(Name);
                     return true;
                 }
@@ -306,7 +312,9 @@ namespace Rythmos.Handlers
         public static bool Set_Collection(ushort ID)
         {
             var Name = Get_Name(ID);
-            if (!Collection_Mapping.ContainsKey(Name) || !ID_Mapping.ContainsKey(Name))
+
+            if (!Individually_Set.ContainsKey(Name)) Individually_Set[Name] = Collection_Getter.Invoke(ID).IndividualSet;
+            if ((!Collection_Mapping.ContainsKey(Name) || !ID_Mapping.ContainsKey(Name)) && !Individually_Set[Name])
             {
                 if (!ID_Mapping.ContainsKey(Name)) ID_Mapping.Add(Name, ID);
                 if (!Collection_Mapping.ContainsKey(Name)) Create_Collection(Name);
@@ -317,7 +325,7 @@ namespace Rythmos.Handlers
                     return true;
                 }
             }
-            else if (Recustomize.Contains(Name))
+            else if (Recustomize.Contains(Name) && !Individually_Set[Name])
             {
                 Log.Information($"Reassignment of {Name}: " + Collection_Assigner.Invoke(Collection_Mapping[Name], (int)ID_Mapping[Name]).ToString(), true);
                 return true;
@@ -332,7 +340,9 @@ namespace Rythmos.Handlers
                     Collection_Wait[Name] = Now;
                     try
                     {
-                        if (Collection_Getter.Invoke(ID).EffectiveCollection.Id != Collection_Mapping[Name])
+                        var Collection_Information = Collection_Getter.Invoke(ID);
+                        Individually_Set[Name] = Collection_Information.IndividualSet;
+                        if (!Individually_Set[Name] && Collection_Information.EffectiveCollection.Id != Collection_Mapping[Name])
                         {
                             Log.Information($"Verified reassignment of {Name}: " + Collection_Assigner.Invoke(Collection_Mapping[Name], (int)ID_Mapping[Name]).ToString(), true);
                             Enable(Name);
@@ -544,13 +554,18 @@ namespace Rythmos.Handlers
                 return string.Empty;
             }
         }
+
+        public static void Clean()
+        {
+            foreach (var Path in Directory.GetDirectories(Rythmos_Path + "\\Mods\\")) Load(Path.Split(Rythmos_Path + "\\Mods\\")[^1], true);
+        }
         public static Mod_Configuration Gather_Mods(string Name)
         {
             // Later, I can provide a filtering argument of sorts, like a list of changed mods.
             var Settings = new Dictionary<string, Mod_Entry>(); // Mod -> (File Path, Priority, Group Settings)
             if (Objects.LocalPlayer != null)
             {
-                foreach (var O in Objects) if (O.ObjectKind is Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Player) if (Get_Name(O.ObjectIndex) == Name)
+                foreach (var O in Objects) if (O.ObjectKind is Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Pc) if (Get_Name(O.ObjectIndex) == Name)
                         {
                             Log.Information($"Now gathering the mods of {O.Name.TextValue}.");
                             var Output = Collection_Getter.Invoke(O.ObjectIndex);
@@ -560,12 +575,12 @@ namespace Rythmos.Handlers
                                 Log.Information($"The collection is {C}.");
                                 var S = Settings_Getter.Invoke(C);
                                 foreach (var Mod in S.Item2.Keys) if (S.Item2[Mod].Item1) Settings.Add(Mod, new Mod_Entry(Mod, S.Item2[Mod].Item2, S.Item2[Mod].Item3));
-                                return new Mod_Configuration(Customize.Pack_Bones(O.ObjectIndex), Networking.C.Pack_Glamourer ? Glamour.Pack(O.ObjectIndex) : "", Get_Meta.Invoke(O.ObjectIndex), Settings, null);
+                                return new Mod_Configuration(Customize.Pack_Bones(O.ObjectIndex), Networking.C.Pack_Glamourer ? Glamour.Pack(O.ObjectIndex) : "", Get_Meta.Invoke(O.ObjectIndex), Settings, null, false);
                             }
                         }
-                return new Mod_Configuration("", "", "", Settings, null);
+                return new Mod_Configuration("", "", "", Settings, null, false);
             }
-            return new Mod_Configuration("", "", "", Settings, null);
+            return new Mod_Configuration("", "", "", Settings, null, false);
         }
 
         private static bool ZIP_Equality(string First, string Second)
@@ -702,7 +717,7 @@ namespace Rythmos.Handlers
                         }
                     }
                     File.WriteAllBytes(D + "\\Mods\\default_mod.json", Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(Mod, Formatting.None)));
-                    File.WriteAllBytes(D + "\\Configuration.json", Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(new Mod_Configuration(Customize_Data, Glamourer_Data, Meta, Settings, null), Formatting.None)));
+                    File.WriteAllBytes(D + "\\Configuration.json", Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(new Mod_Configuration(Customize_Data, Glamourer_Data, Meta, Settings, null, false), Formatting.None)));
                     ZipFile.CreateFromDirectory(D, D + " 1.zip");
                     if (File.Exists(D + ".zip"))
                     {
@@ -876,14 +891,33 @@ namespace Rythmos.Handlers
             return false;
         }
 
-        public static void Load(string Name)
+        public static bool Load(string Name, bool Check = false)
         {
             if (File.Exists(Rythmos_Path + $"\\Mods\\{Name}\\Configuration.json"))
             {
                 Mods.Remove(Name);
-                Mods.Add(Name, JsonConvert.DeserializeObject<Mod_Configuration>(File.ReadAllText(Rythmos_Path + $"\\Mods\\{Name}\\Configuration.json")));
-                if (!Glamours.Keys.Contains(Name)) Glamours[Name] = Mods[Name].Glamour;
+                var Mod_Pack = JsonConvert.DeserializeObject<Mod_Configuration>(File.ReadAllText(Rythmos_Path + $"\\Mods\\{Name}\\Configuration.json"));
+                if (Mod_Pack.External && !Server_Time_Mapping.ContainsKey(Name))
+                {
+                    Log.Information($"Removing the outdated pack of {Name}.");
+                    try
+                    {
+                        Directory.Delete(Rythmos_Path + $"\\Mods\\{Name}", true);
+                    }
+                    catch (Exception Error)
+                    {
+                        Log.Error($"Loading: {Error.Message}");
+                    }
+                    return false;
+                }
+                if (!Check)
+                {
+                    Mods.Add(Name, Mod_Pack);
+                    if (!Glamours.Keys.Contains(Name)) Glamours[Name] = Mods[Name].Glamour;
+                }
+                return true;
             }
+            return false;
         }
 
         public static void Prepare(string Name)
@@ -989,7 +1023,7 @@ namespace Rythmos.Handlers
                 Pets.Clear();
                 Minions.Clear();
                 List<string> Previous_People = ID_Mapping.Keys.ToList<string>();
-                foreach (var O in Objects.Shuffle()) if (O.ObjectKind is Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Player)
+                foreach (var O in Objects.Shuffle()) if (O.ObjectKind is Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Pc)
                     {
                         var Name = Get_Name(O.ObjectIndex);
                         if (O.ObjectIndex == Objects.LocalPlayer?.ObjectIndex)
@@ -1107,13 +1141,13 @@ namespace Rythmos.Handlers
                             Glamour_Buffer = new Dictionary<string, string>(Glamour_Buffer.Where(X => !ID_Mapping.ContainsKey(X.Key)));
                         }
                         var Everyone = Networking.C.Friends.FindAll(X => Entities.Contains(X) || Party_Friends.Contains(X));
-                        if (Available && !Networking.Downloading && New_T - Request_T > 100000000) foreach (var Friend in Everyone) if (File_Time_Mapping.ContainsKey(Friend) && Server_Time_Mapping.ContainsKey(Friend) ? File_Time_Mapping[Friend] < Server_Time_Mapping[Friend] : Server_Time_Mapping.ContainsKey(Friend) && (Locked.ContainsKey(Friend) ? !Locked[Friend] : true))
-                                {
-                                    Log.Information($"Requesting {Friend}!");
-                                    Request_T = New_T;
-                                    Networking.Send(Encoding.UTF8.GetBytes(Friend), 2);
-                                    break;
-                                }
+                        if (Available && !Networking.Downloading && New_T - Request_T > 100000000) foreach (var Friend in Everyone) if (Friend != Networking.Name) if (File_Time_Mapping.ContainsKey(Friend) && Server_Time_Mapping.ContainsKey(Friend) ? File_Time_Mapping[Friend] < Server_Time_Mapping[Friend] : Server_Time_Mapping.ContainsKey(Friend) && (Locked.ContainsKey(Friend) ? !Locked[Friend] : true))
+                                    {
+                                        Log.Information($"Requesting {Friend}!");
+                                        Request_T = New_T;
+                                        Networking.Send(Encoding.UTF8.GetBytes(Friend), 2);
+                                        break;
+                                    }
                     }
                     else
                     {

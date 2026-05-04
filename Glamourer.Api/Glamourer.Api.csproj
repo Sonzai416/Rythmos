@@ -1,11 +1,11 @@
-<Project Sdk="Dalamud.NET.Sdk/14.0.1">
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
     <PropertyGroup>
         <AssemblyTitle>Glamourer.Api</AssemblyTitle>
         <Product>Glamourer</Product>
         <Copyright>Copyright © 2025</Copyright>
-        <FileVersion>2.8.0.0</FileVersion>
-        <AssemblyVersion>2.8.0.0</AssemblyVersion>
-        <PackageVersion>2.8.0</PackageVersion>
+        <FileVersion>2.8.1.0</FileVersion>
+        <AssemblyVersion>2.8.1.0</AssemblyVersion>
+        <PackageVersion>2.8.1</PackageVersion>
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <OutputPath>bin\$(Configuration)\</OutputPath>
     </PropertyGroup>
@@ -22,6 +22,7 @@
 
     <PropertyGroup>
         <Use_DalamudPackager>false</Use_DalamudPackager>
+        <Use_Dalamud_ImGui>false</Use_Dalamud_ImGui>
     </PropertyGroup>
 
     <PropertyGroup>
